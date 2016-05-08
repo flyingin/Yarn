@@ -1,0 +1,11 @@
+<component name="libraryTable">
+  <library name="comm">
+    <CLASSES>
+      <root url="jar://$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/hadoop-common-2.6.0-tests.jar!/" />
+      <root url="jar://$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/hadoop-common-2.6.0.jar!/" />
+      <root url="jar://$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/hadoop-nfs-2.6.0.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
