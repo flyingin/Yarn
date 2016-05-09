@@ -63,8 +63,19 @@ import org.apache.hadoop.yarn.util.timeline.TimelineUtils;
 
 public class Client {
 
+    public static final String SCRIPT_PATH = "ExecScript";
     private static final Log LOG = LogFactory.getLog(Client.class);
-
+    private static final String shellCommandPath = "shellCommands";
+    private static final String shellArgsPath = "shellArgs";
+    private static final String appMasterJarPath = "AppMaster.jar";
+    // Hardcoded path to custom log_properties
+    private static final String log4jPath = "log4j.properties";
+    // Main class to invoke application master
+    private final String appMasterMainClass;
+    // Start time for client
+    private final long clientStartTime = System.currentTimeMillis();
+    // Debug flag
+    boolean debugFlag = false;
     // Configuration
     private Configuration conf;
     private YarnClient yarnClient;
@@ -78,12 +89,8 @@ public class Client {
     private int amMemory = 10;
     // Amt. of virtual core resource to request for to run the App Master
     private int amVCores = 1;
-
     // Application master jar file
     private String appMasterJar = "";
-    // Main class to invoke application master
-    private final String appMasterMainClass;
-
     // Shell command to be executed
     private String shellCommand = "";
     // Location of shell script
@@ -94,7 +101,6 @@ public class Client {
     private Map<String, String> shellEnv = new HashMap<String, String>();
     // Shell Command Container priority
     private int shellCmdPriority = 0;
-
     // Amt of memory to request for container in which shell script will be executed
     private int containerMemory = 10;
     // Amt. of virtual cores to request for container in which shell script will be executed
@@ -102,92 +108,24 @@ public class Client {
     // No. of containers in which the shell script needs to be executed
     private int numContainers = 1;
     private String nodeLabelExpression = null;
-
     // log4j.properties file
     // if available, add to local resources and set into classpath
     private String log4jPropFile = "";
-
-    // Start time for client
-    private final long clientStartTime = System.currentTimeMillis();
     // Timeout threshold for client. Kill app after time interval expires.
     private long clientTimeout = 600000;
-
     // flag to indicate whether to keep containers across application attempts.
     private boolean keepContainers = false;
-
     private long attemptFailuresValidityInterval = -1;
-
-    // Debug flag
-    boolean debugFlag = false;
-
     // Timeline domain ID
     private String domainId = null;
-
     // Flag to indicate whether to create the domain of the given ID
     private boolean toCreateDomain = false;
-
     // Timeline domain reader access control
     private String viewACLs = null;
-
     // Timeline domain writer access control
     private String modifyACLs = null;
-
     // Command line options
     private Options opts;
-
-    private static final String shellCommandPath = "shellCommands";
-    private static final String shellArgsPath = "shellArgs";
-    private static final String appMasterJarPath = "AppMaster.jar";
-    // Hardcoded path to custom log_properties
-    private static final String log4jPath = "log4j.properties";
-
-    public static final String SCRIPT_PATH = "ExecScript";
-
-    /**
-     * @param args Command line arguments
-     */
-    public static void main(String[] args) {
-        boolean result = false;
-        /*/home/yml/Cloud/hadoop-2.6.0/share/hadoop/yarn/hadoop-yarn-applications-distributedshell-2.6.0.jar*/
-
-        /*
-        --jar
-        /home/yml/Yarn.jar
-        --shell_command
-        date
-        --num_containers
-        2
-        --container_memory
-        350
-        --master_memory
-        350
-        --priority
-        10*/
-        try {
-            Client client = new Client();
-            LOG.info("Initializing DistributedShell.main.Client");
-            try {
-                boolean doRun = client.init(args);
-                if (!doRun) {
-                    System.exit(0);
-                }
-            } catch (IllegalArgumentException e) {
-                System.err.println(e.getLocalizedMessage());
-                client.printUsage();
-                System.exit(-1);
-            }
-            result = client.run();
-        } catch (Throwable t) {
-            LOG.fatal("Error running DistributedShell.main.Client", t);
-            System.exit(1);
-        }
-        if (result) {
-            LOG.info("Application completed successfully");
-            System.exit(0);
-        }
-        LOG.error("Application failed to complete successfully");
-        System.exit(2);
-    }
 
     /**
      */
@@ -258,6 +196,52 @@ public class Client {
     public Client() throws Exception  {
         this(new YarnConfiguration());
 
+    }
+
+    /**
+     * @param args Command line arguments
+     */
+    public static void main(String[] args) {
+        boolean result = false;
+        /*/home/yml/Cloud/hadoop-2.6.0/share/hadoop/yarn/hadoop-yarn-applications-distributedshell-2.6.0.jar*/
+
+        /*
+        --jar
+        /home/yml/Yarn.jar
+        --shell_command
+        date
+        --num_containers
+        2
+        --container_memory
+        350
+        --master_memory
+        350
+        --priority
+        10*/
+        try {
+            Client client = new Client();
+            LOG.info("Initializing DistributedShell.main.Client");
+            try {
+                boolean doRun = client.init(args);
+                if (!doRun) {
+                    System.exit(0);
+                }
+            } catch (IllegalArgumentException e) {
+                System.err.println(e.getLocalizedMessage());
+                client.printUsage();
+                System.exit(-1);
+            }
+            result = client.run();
+        } catch (Throwable t) {
+            LOG.fatal("Error running DistributedShell.main.Client", t);
+            System.exit(1);
+        }
+        if (result) {
+            LOG.info("Application completed successfully");
+            System.exit(0);
+        }
+        LOG.error("Application failed to complete successfully");
+        System.exit(2);
     }
 
     /**
@@ -587,6 +571,7 @@ public class Client {
         Vector<CharSequence> vargs = new Vector<CharSequence>(30);
 
         // Set java executable command
+        //传参数到ApplicationMaster中
         LOG.info("Setting up app master command");
         vargs.add(Environment.JAVA_HOME.$$() + "/bin/java");
         // Set Xmx based on am memory size
@@ -614,8 +599,12 @@ public class Client {
 
         // Get final commmand
         StringBuilder command = new StringBuilder();
+        System.out.println("向ApplicationMaster传送的参数是:");
+        int count = 0;
         for (CharSequence str : vargs) {
             command.append(str).append(" ");
+            System.out.println("@@@" + count + "@@@" + str.toString());
+            count++;
         }
 
         LOG.info("Completed setting up app master command " + command.toString());
