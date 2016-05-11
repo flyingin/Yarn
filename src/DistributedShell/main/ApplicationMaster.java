@@ -79,37 +79,43 @@ import com.google.common.annotations.VisibleForTesting;
 public class ApplicationMaster {
 
     private static final Log LOG = LogFactory.getLog(ApplicationMaster.class);
-
+    // Hardcoded path to shell script in launch container's local env
+    private static final String ExecShellStringPath = Client.SCRIPT_PATH + ".sh";
+    private static final String ExecBatScripStringtPath = Client.SCRIPT_PATH
+            + ".bat";
+    // Hardcoded path to custom log_properties
+    private static final String log4jPath = "log4j.properties";
+    private static final String shellCommandPath = "shellCommands";
+    private static final String shellArgsPath = "shellArgs";
+    private final String linux_bash_command = "bash";
+    private final String windows_command = "cmd /c";
+    // Application Attempt Id ( combination of attemptId and fail count )
     @VisibleForTesting
-   /* @Private*/
-    public static enum DSEvent {
-        DS_APP_ATTEMPT_START, DS_APP_ATTEMPT_END, DS_CONTAINER_START, DS_CONTAINER_END
-    }
-
+    protected ApplicationAttemptId appAttemptID;
+    // App Master configuration
+    // No. of containers to run shell command on
     @VisibleForTesting
-    /*@Private*/
-    public static enum DSEntity {
-        DS_APP_ATTEMPT, DS_CONTAINER
-    }
-
+    protected int numTotalContainers = 1;
+    // Allocated container count so that we know how many containers has the RM
+    // allocated to us
+    @VisibleForTesting
+    protected AtomicInteger numAllocatedContainers = new AtomicInteger();
+    // Count of containers already requested from the RM
+    // Needed as once requested, we should not request for containers again.
+    // Only request for more if the original requirement changes.
+    @VisibleForTesting
+    protected AtomicInteger numRequestedContainers = new AtomicInteger();
     // Configuration
     private Configuration conf;
-
     // Handle to communicate with the Resource Manager
     @SuppressWarnings("rawtypes")
     private AMRMClientAsync amRMClient;
     // In both secure and non-secure modes, this points to the job-submitter.
     private UserGroupInformation appSubmitterUgi;
-
     // Handle to communicate with the Node Manager
     private NMClientAsync nmClientAsync;
     // Listen to process the response from the Node Manager
     private NMCallbackHandler containerListener;
-
-    // Application Attempt Id ( combination of attemptId and fail count )
-    @VisibleForTesting
-    protected ApplicationAttemptId appAttemptID;
-
     // TODO
     // For status update for clients - yet to be implemented
     // Hostname of the container
@@ -118,39 +124,22 @@ public class ApplicationMaster {
     private int appMasterRpcPort = -1;
     // Tracking url to which app master publishes info for clients to monitor
     private String appMasterTrackingUrl = "";
-
-    // App Master configuration
-    // No. of containers to run shell command on
-    @VisibleForTesting
-    protected int numTotalContainers = 1;
     // Memory to request for the container on which the shell command will run
     private int containerMemory = 10;
     // VirtualCores to request for the container on which the shell command will run
     private int containerVirtualCores = 1;
     // Priority of the request
     private int requestPriority;
-
     // Counter for completed containers ( complete denotes successful or failed )
     private AtomicInteger numCompletedContainers = new AtomicInteger();
-    // Allocated container count so that we know how many containers has the RM
-    // allocated to us
-    @VisibleForTesting
-    protected AtomicInteger numAllocatedContainers = new AtomicInteger();
     // Count of failed containers
     private AtomicInteger numFailedContainers = new AtomicInteger();
-    // Count of containers already requested from the RM
-    // Needed as once requested, we should not request for containers again.
-    // Only request for more if the original requirement changes.
-    @VisibleForTesting
-    protected AtomicInteger numRequestedContainers = new AtomicInteger();
-
     // Shell command to be executed
     private String shellCommand = "";
     // Args to be passed to the shell command
     private String shellArgs = "";
     // Env variables to be setup for the shell command
     private Map<String, String> shellEnv = new HashMap<String, String>();
-
     // Location of shell script ( obtained from info set in env )
     // Shell script path in fs
     private String scriptPath = "";
@@ -158,21 +147,8 @@ public class ApplicationMaster {
     private long shellScriptPathTimestamp = 0;
     // File length needed for local resource
     private long shellScriptPathLen = 0;
-
     // Timeline domain ID
     private String domainId = null;
-
-    // Hardcoded path to shell script in launch container's local env
-    private static final String ExecShellStringPath = Client.SCRIPT_PATH + ".sh";
-    private static final String ExecBatScripStringtPath = Client.SCRIPT_PATH
-            + ".bat";
-
-    // Hardcoded path to custom log_properties
-    private static final String log4jPath = "log4j.properties";
-
-    private static final String shellCommandPath = "shellCommands";
-    private static final String shellArgsPath = "shellArgs";
-
     private volatile boolean done;
 
     private ByteBuffer allTokens;
@@ -183,8 +159,10 @@ public class ApplicationMaster {
     // Timeline DistributedShell.main.Client
     private TimelineClient timelineClient;
 
-    private final String linux_bash_command = "bash";
-    private final String windows_command = "cmd /c";
+    public ApplicationMaster() {
+        // Set up the configuration
+        conf = new YarnConfiguration();
+    }
 
     /**
      * @param args Command line args
@@ -211,6 +189,93 @@ public class ApplicationMaster {
         } else {
             LOG.info("Application Master failed. exiting");
             System.exit(2);
+        }
+    }
+
+    private static void publishContainerStartEvent(
+            final TimelineClient timelineClient, Container container, String domainId,
+            UserGroupInformation ugi) {
+        final TimelineEntity entity = new TimelineEntity();
+        entity.setEntityId(container.getId().toString());
+        entity.setEntityType(DSEntity.DS_CONTAINER.toString());
+        entity.setDomainId(domainId);
+        entity.addPrimaryFilter("user", ugi.getShortUserName());
+        TimelineEvent event = new TimelineEvent();
+        event.setTimestamp(System.currentTimeMillis());
+        event.setEventType(DSEvent.DS_CONTAINER_START.toString());
+        event.addEventInfo("Node", container.getNodeId().toString());
+        event.addEventInfo("Resources", container.getResource().toString());
+        entity.addEvent(event);
+
+        try {
+            ugi.doAs(new PrivilegedExceptionAction<TimelinePutResponse>() {
+                @Override
+                public TimelinePutResponse run() throws Exception {
+                    return timelineClient.putEntities(entity);
+                }
+            });
+        } catch (Exception e) {
+            LOG.error("Container start event could not be published for "
+                            + container.getId().toString(),
+                    e instanceof UndeclaredThrowableException ? e.getCause() : e);
+        }
+    }
+
+    private static void publishContainerEndEvent(
+            final TimelineClient timelineClient, ContainerStatus container,
+            String domainId, UserGroupInformation ugi) {
+        final TimelineEntity entity = new TimelineEntity();
+        entity.setEntityId(container.getContainerId().toString());
+        entity.setEntityType(DSEntity.DS_CONTAINER.toString());
+        entity.setDomainId(domainId);
+        entity.addPrimaryFilter("user", ugi.getShortUserName());
+        TimelineEvent event = new TimelineEvent();
+        event.setTimestamp(System.currentTimeMillis());
+        event.setEventType(DSEvent.DS_CONTAINER_END.toString());
+        event.addEventInfo("State", container.getState().name());
+        event.addEventInfo("Exit Status", container.getExitStatus());
+        entity.addEvent(event);
+
+        try {
+            ugi.doAs(new PrivilegedExceptionAction<TimelinePutResponse>() {
+                @Override
+                public TimelinePutResponse run() throws Exception {
+                    return timelineClient.putEntities(entity);
+                }
+            });
+        } catch (Exception e) {
+            LOG.error("Container end event could not be published for "
+                            + container.getContainerId().toString(),
+                    e instanceof UndeclaredThrowableException ? e.getCause() : e);
+        }
+    }
+
+    private static void publishApplicationAttemptEvent(
+            final TimelineClient timelineClient, String appAttemptId,
+            DSEvent appEvent, String domainId, UserGroupInformation ugi) {
+        final TimelineEntity entity = new TimelineEntity();
+        entity.setEntityId(appAttemptId);
+        entity.setEntityType(DSEntity.DS_APP_ATTEMPT.toString());
+        entity.setDomainId(domainId);
+        entity.addPrimaryFilter("user", ugi.getShortUserName());
+        TimelineEvent event = new TimelineEvent();
+        event.setEventType(appEvent.toString());
+        event.setTimestamp(System.currentTimeMillis());
+        entity.addEvent(event);
+
+        try {
+            ugi.doAs(new PrivilegedExceptionAction<TimelinePutResponse>() {
+                @Override
+                public TimelinePutResponse run() throws Exception {
+                    return timelineClient.putEntities(entity);
+                }
+            });
+        } catch (Exception e) {
+            LOG.error("App Attempt "
+                            + (appEvent.equals(DSEvent.DS_APP_ATTEMPT_START) ? "start" : "end")
+                            + " event could not be published for "
+                            + appAttemptId.toString(),
+                    e instanceof UndeclaredThrowableException ? e.getCause() : e);
         }
     }
 
@@ -242,11 +307,6 @@ public class ApplicationMaster {
         } finally {
             IOUtils.cleanup(LOG, buf);
         }
-    }
-
-    public ApplicationMaster() {
-        // Set up the configuration
-        conf = new YarnConfiguration();
     }
 
     /**
@@ -481,7 +541,7 @@ public class ApplicationMaster {
 
         // Register self with ResourceManager
         // This will start heartbeating to the RM
-        appMasterHostname = NetUtils.getHostname();
+        appMasterHostname = NetUtils.getHostname();//向RM注册AM
         RegisterApplicationMasterResponse response = amRMClient
                 .registerApplicationMaster(appMasterHostname, appMasterRpcPort,
                         appMasterTrackingUrl);
@@ -595,6 +655,138 @@ public class ApplicationMaster {
         return success;
     }
 
+    private void renameScriptFile(final Path renamedScriptPath)
+            throws IOException, InterruptedException {
+        appSubmitterUgi.doAs(new PrivilegedExceptionAction<Void>() {
+            @Override
+            public Void run() throws IOException {
+                FileSystem fs = renamedScriptPath.getFileSystem(conf);
+                fs.rename(new Path(scriptPath), renamedScriptPath);
+                return null;
+            }
+        });
+        LOG.info("User " + appSubmitterUgi.getUserName()
+                + " added suffix(.sh/.bat) to script file as " + renamedScriptPath);
+    }
+
+    /**
+     * Setup the request that will be sent to the RM for the container ask.
+     *
+     * @return the setup ResourceRequest to be sent to RM
+     */
+    private ContainerRequest setupContainerAskForRM() {
+        // setup requirements for hosts
+        // using * as any host will do for the distributed shell app
+        // set the priority for the request
+        // TODO - what is the range for priority? how to decide?
+        Priority pri = Priority.newInstance(requestPriority);
+
+        // Set up resource type requirements
+        // For now, memory and CPU are supported so we set memory and cpu requirements
+        Resource capability = Resource.newInstance(containerMemory,
+                containerVirtualCores);
+
+        ContainerRequest request = new ContainerRequest(capability, null, null,
+                pri);
+        LOG.info("Requested container ask: " + request.toString());
+        return request;
+    }
+
+    private boolean fileExist(String filePath) {
+        return new File(filePath).exists();
+    }
+
+    private String readContent(String filePath) throws IOException {
+        DataInputStream ds = null;
+        try {
+            ds = new DataInputStream(new FileInputStream(filePath));
+            return ds.readUTF();
+        } finally {
+            org.apache.commons.io.IOUtils.closeQuietly(ds);
+        }
+    }
+
+    @VisibleForTesting
+   /* @Private*/
+    public static enum DSEvent {
+        DS_APP_ATTEMPT_START, DS_APP_ATTEMPT_END, DS_CONTAINER_START, DS_CONTAINER_END
+    }
+
+    @VisibleForTesting
+    /*@Private*/
+    public static enum DSEntity {
+        DS_APP_ATTEMPT, DS_CONTAINER
+    }
+
+    @VisibleForTesting
+    static class NMCallbackHandler
+            implements NMClientAsync.CallbackHandler {
+
+        private final ApplicationMaster applicationMaster;
+        private ConcurrentMap<ContainerId, Container> containers =
+                new ConcurrentHashMap<ContainerId, Container>();
+
+        public NMCallbackHandler(ApplicationMaster applicationMaster) {
+            this.applicationMaster = applicationMaster;
+        }
+
+        public void addContainer(ContainerId containerId, Container container) {
+            containers.putIfAbsent(containerId, container);
+        }
+
+        @Override
+        public void onContainerStopped(ContainerId containerId) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Succeeded to stop Container " + containerId);
+            }
+            containers.remove(containerId);
+        }
+
+        @Override
+        public void onContainerStatusReceived(ContainerId containerId,
+                                              ContainerStatus containerStatus) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Container Status: id=" + containerId + ", status=" +
+                        containerStatus);
+            }
+        }
+
+        @Override
+        public void onContainerStarted(ContainerId containerId,
+                                       Map<String, ByteBuffer> allServiceResponse) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Succeeded to start Container " + containerId);
+            }
+            Container container = containers.get(containerId);
+            if (container != null) {
+                applicationMaster.nmClientAsync.getContainerStatusAsync(containerId, container.getNodeId());
+            }
+            ApplicationMaster.publishContainerStartEvent(
+                    applicationMaster.timelineClient, container,
+                    applicationMaster.domainId, applicationMaster.appSubmitterUgi);
+        }
+
+        @Override
+        public void onStartContainerError(ContainerId containerId, Throwable t) {
+            LOG.error("Failed to start Container " + containerId);
+            containers.remove(containerId);
+            applicationMaster.numCompletedContainers.incrementAndGet();
+            applicationMaster.numFailedContainers.incrementAndGet();
+        }
+
+        @Override
+        public void onGetContainerStatusError(
+                ContainerId containerId, Throwable t) {
+            LOG.error("Failed to query the status of Container " + containerId);
+        }
+
+        @Override
+        public void onStopContainerError(ContainerId containerId, Throwable t) {
+            LOG.error("Failed to stop Container " + containerId);
+            containers.remove(containerId);
+        }
+    }
+
     private class RMCallbackHandler implements AMRMClientAsync.CallbackHandler {
         @SuppressWarnings("unchecked")
         @Override
@@ -705,75 +897,6 @@ public class ApplicationMaster {
         public void onError(Throwable e) {
             done = true;
             amRMClient.stop();
-        }
-    }
-
-    @VisibleForTesting
-    static class NMCallbackHandler
-            implements NMClientAsync.CallbackHandler {
-
-        private ConcurrentMap<ContainerId, Container> containers =
-                new ConcurrentHashMap<ContainerId, Container>();
-        private final ApplicationMaster applicationMaster;
-
-        public NMCallbackHandler(ApplicationMaster applicationMaster) {
-            this.applicationMaster = applicationMaster;
-        }
-
-        public void addContainer(ContainerId containerId, Container container) {
-            containers.putIfAbsent(containerId, container);
-        }
-
-        @Override
-        public void onContainerStopped(ContainerId containerId) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Succeeded to stop Container " + containerId);
-            }
-            containers.remove(containerId);
-        }
-
-        @Override
-        public void onContainerStatusReceived(ContainerId containerId,
-                                              ContainerStatus containerStatus) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Container Status: id=" + containerId + ", status=" +
-                        containerStatus);
-            }
-        }
-
-        @Override
-        public void onContainerStarted(ContainerId containerId,
-                                       Map<String, ByteBuffer> allServiceResponse) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Succeeded to start Container " + containerId);
-            }
-            Container container = containers.get(containerId);
-            if (container != null) {
-                applicationMaster.nmClientAsync.getContainerStatusAsync(containerId, container.getNodeId());
-            }
-            ApplicationMaster.publishContainerStartEvent(
-                    applicationMaster.timelineClient, container,
-                    applicationMaster.domainId, applicationMaster.appSubmitterUgi);
-        }
-
-        @Override
-        public void onStartContainerError(ContainerId containerId, Throwable t) {
-            LOG.error("Failed to start Container " + containerId);
-            containers.remove(containerId);
-            applicationMaster.numCompletedContainers.incrementAndGet();
-            applicationMaster.numFailedContainers.incrementAndGet();
-        }
-
-        @Override
-        public void onGetContainerStatusError(
-                ContainerId containerId, Throwable t) {
-            LOG.error("Failed to query the status of Container " + containerId);
-        }
-
-        @Override
-        public void onStopContainerError(ContainerId containerId, Throwable t) {
-            LOG.error("Failed to stop Container " + containerId);
-            containers.remove(containerId);
         }
     }
 
@@ -899,144 +1022,6 @@ public class ApplicationMaster {
                     localResources, shellEnv, commands, null, allTokens.duplicate(), null);
             containerListener.addContainer(container.getId(), container);
             nmClientAsync.startContainerAsync(container, ctx);
-        }
-    }
-
-    private void renameScriptFile(final Path renamedScriptPath)
-            throws IOException, InterruptedException {
-        appSubmitterUgi.doAs(new PrivilegedExceptionAction<Void>() {
-            @Override
-            public Void run() throws IOException {
-                FileSystem fs = renamedScriptPath.getFileSystem(conf);
-                fs.rename(new Path(scriptPath), renamedScriptPath);
-                return null;
-            }
-        });
-        LOG.info("User " + appSubmitterUgi.getUserName()
-                + " added suffix(.sh/.bat) to script file as " + renamedScriptPath);
-    }
-
-    /**
-     * Setup the request that will be sent to the RM for the container ask.
-     *
-     * @return the setup ResourceRequest to be sent to RM
-     */
-    private ContainerRequest setupContainerAskForRM() {
-        // setup requirements for hosts
-        // using * as any host will do for the distributed shell app
-        // set the priority for the request
-        // TODO - what is the range for priority? how to decide?
-        Priority pri = Priority.newInstance(requestPriority);
-
-        // Set up resource type requirements
-        // For now, memory and CPU are supported so we set memory and cpu requirements
-        Resource capability = Resource.newInstance(containerMemory,
-                containerVirtualCores);
-
-        ContainerRequest request = new ContainerRequest(capability, null, null,
-                pri);
-        LOG.info("Requested container ask: " + request.toString());
-        return request;
-    }
-
-    private boolean fileExist(String filePath) {
-        return new File(filePath).exists();
-    }
-
-    private String readContent(String filePath) throws IOException {
-        DataInputStream ds = null;
-        try {
-            ds = new DataInputStream(new FileInputStream(filePath));
-            return ds.readUTF();
-        } finally {
-            org.apache.commons.io.IOUtils.closeQuietly(ds);
-        }
-    }
-
-    private static void publishContainerStartEvent(
-            final TimelineClient timelineClient, Container container, String domainId,
-            UserGroupInformation ugi) {
-        final TimelineEntity entity = new TimelineEntity();
-        entity.setEntityId(container.getId().toString());
-        entity.setEntityType(DSEntity.DS_CONTAINER.toString());
-        entity.setDomainId(domainId);
-        entity.addPrimaryFilter("user", ugi.getShortUserName());
-        TimelineEvent event = new TimelineEvent();
-        event.setTimestamp(System.currentTimeMillis());
-        event.setEventType(DSEvent.DS_CONTAINER_START.toString());
-        event.addEventInfo("Node", container.getNodeId().toString());
-        event.addEventInfo("Resources", container.getResource().toString());
-        entity.addEvent(event);
-
-        try {
-            ugi.doAs(new PrivilegedExceptionAction<TimelinePutResponse>() {
-                @Override
-                public TimelinePutResponse run() throws Exception {
-                    return timelineClient.putEntities(entity);
-                }
-            });
-        } catch (Exception e) {
-            LOG.error("Container start event could not be published for "
-                            + container.getId().toString(),
-                    e instanceof UndeclaredThrowableException ? e.getCause() : e);
-        }
-    }
-
-    private static void publishContainerEndEvent(
-            final TimelineClient timelineClient, ContainerStatus container,
-            String domainId, UserGroupInformation ugi) {
-        final TimelineEntity entity = new TimelineEntity();
-        entity.setEntityId(container.getContainerId().toString());
-        entity.setEntityType(DSEntity.DS_CONTAINER.toString());
-        entity.setDomainId(domainId);
-        entity.addPrimaryFilter("user", ugi.getShortUserName());
-        TimelineEvent event = new TimelineEvent();
-        event.setTimestamp(System.currentTimeMillis());
-        event.setEventType(DSEvent.DS_CONTAINER_END.toString());
-        event.addEventInfo("State", container.getState().name());
-        event.addEventInfo("Exit Status", container.getExitStatus());
-        entity.addEvent(event);
-
-        try {
-            ugi.doAs(new PrivilegedExceptionAction<TimelinePutResponse>() {
-                @Override
-                public TimelinePutResponse run() throws Exception {
-                    return timelineClient.putEntities(entity);
-                }
-            });
-        } catch (Exception e) {
-            LOG.error("Container end event could not be published for "
-                            + container.getContainerId().toString(),
-                    e instanceof UndeclaredThrowableException ? e.getCause() : e);
-        }
-    }
-
-    private static void publishApplicationAttemptEvent(
-            final TimelineClient timelineClient, String appAttemptId,
-            DSEvent appEvent, String domainId, UserGroupInformation ugi) {
-        final TimelineEntity entity = new TimelineEntity();
-        entity.setEntityId(appAttemptId);
-        entity.setEntityType(DSEntity.DS_APP_ATTEMPT.toString());
-        entity.setDomainId(domainId);
-        entity.addPrimaryFilter("user", ugi.getShortUserName());
-        TimelineEvent event = new TimelineEvent();
-        event.setEventType(appEvent.toString());
-        event.setTimestamp(System.currentTimeMillis());
-        entity.addEvent(event);
-
-        try {
-            ugi.doAs(new PrivilegedExceptionAction<TimelinePutResponse>() {
-                @Override
-                public TimelinePutResponse run() throws Exception {
-                    return timelineClient.putEntities(entity);
-                }
-            });
-        } catch (Exception e) {
-            LOG.error("App Attempt "
-                            + (appEvent.equals(DSEvent.DS_APP_ATTEMPT_START) ? "start" : "end")
-                            + " event could not be published for "
-                            + appAttemptId.toString(),
-                    e instanceof UndeclaredThrowableException ? e.getCause() : e);
         }
     }
 }
