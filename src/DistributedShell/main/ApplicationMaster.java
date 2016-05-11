@@ -541,8 +541,9 @@ public class ApplicationMaster {
 
         // Register self with ResourceManager
         // This will start heartbeating to the RM
-        appMasterHostname = NetUtils.getHostname();//向RM注册AM
-        RegisterApplicationMasterResponse response = amRMClient
+        appMasterHostname = NetUtils.getHostname();//获取hostname
+        LOG.info("hostname is " + appMasterHostname);//测试程序,新添加的
+        RegisterApplicationMasterResponse response = amRMClient    //向RM注册AM
                 .registerApplicationMaster(appMasterHostname, appMasterRpcPort,
                         appMasterTrackingUrl);
         // Dump out information about cluster capability as seen by the
