@@ -153,6 +153,8 @@ public class ApplicationMaster {
 
     private ByteBuffer allTokens;
 
+    private String nodename = "";
+
     // Launch threads
     private List<Thread> launchThreads = new ArrayList<Thread>();
 
@@ -319,6 +321,10 @@ public class ApplicationMaster {
      */
     public boolean init(String[] args) throws ParseException, IOException {
         Options opts = new Options();
+        for (int i = 0; i < args.length; i++) {
+            LOG.info("times = " + i + "@@@@@@@@" + args[i]);
+        }
+        nodename = args[args.length - 1];
         opts.addOption("app_attempt_id", true,
                 "App Attempt ID. Not to be used unless for testing purposes");
         opts.addOption("shell_env", true,
@@ -541,7 +547,9 @@ public class ApplicationMaster {
 
         // Register self with ResourceManager
         // This will start heartbeating to the RM
-        appMasterHostname = NetUtils.getHostname();//获取hostname
+        //appMasterHostname = NetUtils.getHostname();//获取hostname
+        //appMasterHostname = "ymldeMacBook-Air.local/127.0.0.1";
+        appMasterHostname = nodename;
         LOG.info("hostname is " + appMasterHostname);//测试程序,新添加的
         RegisterApplicationMasterResponse response = amRMClient    //向RM注册AM
                 .registerApplicationMaster(appMasterHostname, appMasterRpcPort,

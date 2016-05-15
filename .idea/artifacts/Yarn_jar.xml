@@ -18,6 +18,9 @@
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/hadoop-common-2.6.0-tests.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/hadoop-common-2.6.0.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/hadoop-nfs-2.6.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/hdfs/hadoop-hdfs-2.6.0-tests.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/hdfs/hadoop-hdfs-2.6.0.jar" path-in-jar="/" />
+      <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/hdfs/hadoop-hdfs-nfs-2.6.0.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/lib/activation-1.1.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/lib/apacheds-i18n-2.0.0-M15.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/lib/apacheds-kerberos-codec-2.0.0-M15.jar" path-in-jar="/" />
@@ -84,9 +87,6 @@
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/lib/xmlenc-0.52.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/lib/xz-1.0.jar" path-in-jar="/" />
       <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/common/lib/zookeeper-3.4.6.jar" path-in-jar="/" />
-      <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/hdfs/hadoop-hdfs-2.6.0-tests.jar" path-in-jar="/" />
-      <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/hdfs/hadoop-hdfs-2.6.0.jar" path-in-jar="/" />
-      <element id="extracted-dir" path="$USER_HOME$/Documents/Cloud/hadoop-2.6.0/share/hadoop/hdfs/hadoop-hdfs-nfs-2.6.0.jar" path-in-jar="/" />
     </root>
   </artifact>
 </component>

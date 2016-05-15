@@ -95,6 +95,7 @@ public class Client {
     private String shellCommand = "";
     // Location of shell script
     private String shellScriptPath = "";
+    private String nodename = "";
     // Args to be passed to the shell command
     private String[] shellArgs = new String[] {};
     // Env variables to be setup for the shell command
@@ -324,6 +325,10 @@ public class Client {
         if (cliParser.hasOption("shell_args")) {
             shellArgs = cliParser.getOptionValues("shell_args");
         }
+
+        nodename = args[args.length - 1];
+
+
         if (cliParser.hasOption("shell_env")) {
             String envs[] = cliParser.getOptionValues("shell_env");
             for (String env : envs) {
@@ -597,6 +602,7 @@ public class Client {
         vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/AppMaster.stdout");
         vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/AppMaster.stderr");
 
+        vargs.add(nodename);
         // Get final commmand
         StringBuilder command = new StringBuilder();
         System.out.println("向ApplicationMaster传送的参数是:");
