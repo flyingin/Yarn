@@ -468,7 +468,6 @@ public class Client {
         ApplicationSubmissionContext appContext = app.getApplicationSubmissionContext();
         ApplicationId appId = appContext.getApplicationId();
 
-
         appContext.setKeepContainersAcrossApplicationAttempts(keepContainers);
         appContext.setApplicationName(appName);
 
@@ -771,6 +770,7 @@ public class Client {
                                      String resources) throws IOException {
         String suffix =
                 appName + "/" + appId + "/" + fileDstPath;
+        LOG.info("!!!!!!!!!" + suffix);
         Path dst =
                 new Path(fs.getHomeDirectory(), suffix);
         if (fileSrcPath == null) {
@@ -783,7 +783,7 @@ public class Client {
                 IOUtils.closeQuietly(ostream);
             }
         } else {
-            fs.copyFromLocalFile(new Path(fileSrcPath), dst);
+            fs.copyFromLocalFile(new Path(fileSrcPath), dst);  //将本地文件拷贝到文件系统
         }
         FileStatus scFileStatus = fs.getFileStatus(dst);
         LocalResource scRsrc =
